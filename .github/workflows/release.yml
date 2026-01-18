@@ -3,7 +3,7 @@ name: Release monitor_blank
 on:
   push:
     tags:
-      - "v*" # only version tags like v0.1.0
+      - "v*.*.*"
   workflow_dispatch:
 
 jobs:
