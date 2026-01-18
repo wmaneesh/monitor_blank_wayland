@@ -1,0 +1,9 @@
+Tasks
+
+- Create SimpleLayer that track activeLayers and selectedOutputs and knowLayers
+- Create Keyboard ALT_R as toggle (temporary)
+- Toggle blackout
+    - Create a black layer on the selectedOutputs
+    - Destroy layer on the selectedOutputs (or all outputs)
+- Figure out how to kill process if its already running
+    - Dont create 2 proccessors (use AI)
