@@ -1,38 +1,42 @@
 name: Release monitor_blank
 
-# Trigger workflow on version tags or manual trigger
 on:
   push:
     tags:
       - "v*" # only version tags like v0.1.0
-  workflow_dispatch: # allows manual run from GitHub UI
+  workflow_dispatch:
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout the repo
       - uses: actions/checkout@v3
 
-      # 2. Install Rust
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential \
+            pkg-config \
+            libxkbcommon-dev \
+            libwayland-dev \
+            wayland-protocols
+
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
 
-      # 3. Install system dependencies for Wayland
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y libwayland-dev pkg-config
 
-      # 4. Build release binary
       - name: Build release
         run: cargo build --release
 
-      # 5. Create a GitHub release
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -41,7 +45,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 6. Upload the Linux binary to the release
       - name: Upload binary
         uses: softprops/action-gh-release@v1
         with:
