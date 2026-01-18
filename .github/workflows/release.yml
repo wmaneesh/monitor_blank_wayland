@@ -38,16 +38,9 @@ jobs:
         run: cargo build --release
 
       - name: Create release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload binary
-        uses: softprops/action-gh-release@v1
-        with:
           files: target/release/monitor_blank
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
