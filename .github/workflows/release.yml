@@ -50,4 +50,4 @@ jobs:
         with:
           files: target/release/monitor_blank
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
