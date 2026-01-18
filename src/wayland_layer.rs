@@ -19,7 +19,6 @@ use smithay_client_toolkit::{
     },
     shm::{Shm, ShmHandler, slot::SlotPool},
 };
-use std::env;
 use std::{convert::TryInto, num::NonZeroU32};
 use wayland_client::{
     Connection, QueueHandle,
@@ -27,12 +26,12 @@ use wayland_client::{
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
 };
 
-pub fn run_monitor_blank() {
+pub fn run_monitor_blank(args: Vec<String>) {
     env_logger::init();
     //connect to compositor (server)
     let conn = Connection::connect_to_env().unwrap();
 
-    let args: Vec<String> = env::args().collect();
+    // let args: Vec<String> = env::args().collect();
     // dbg!(args);
 
     //enumarate the globals and find all the protocals the server implements

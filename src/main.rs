@@ -1,8 +1,17 @@
 mod wayland_layer;
 
-use crate::wayland_layer::run_monitor_blank;
+use clap::Parser;
 use std::path::PathBuf;
 use std::{fs, process};
+use wayland_layer::run_monitor_blank;
+
+#[derive(Parser, Debug)]
+#[command(name = "monitor_blank_wayland")]
+#[command(about = "Blank selected monitors on Wayland")]
+struct Args {
+    /// Output names (e.g. DP-1 DP-2)
+    outputs: Vec<String>,
+}
 
 fn main() {
     if try_toggle_existing_instance() {
@@ -19,7 +28,14 @@ fn main() {
     })
     .unwrap();
 
-    run_monitor_blank();
+    let args = Args::parse();
+
+    if args.outputs.is_empty() {
+        eprintln!("No outputs provided");
+        return;
+    }
+
+    run_monitor_blank(args.outputs);
 
     cleanup_lockfile();
 }
