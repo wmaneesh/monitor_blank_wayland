@@ -143,6 +143,7 @@ impl SimpleLayer {
             .iter()
             .for_each(|l| print!("Removing layer from output {:?}\n", l.output_name));
         self.active_layers.clear();
+        self.exit = true;
     }
 
     pub fn draw(&mut self, qh: &QueueHandle<Self>) {
@@ -243,11 +244,8 @@ impl OutputHandler for SimpleLayer {
 
 impl LayerShellHandler for SimpleLayer {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
-        self.active_layers
-            .iter()
-            .for_each(|l| print!("Removing layer from output {:?}\n", l.output_name));
-
         self.active_layers.clear();
+        self.exit = true;
     }
 
     fn configure(
