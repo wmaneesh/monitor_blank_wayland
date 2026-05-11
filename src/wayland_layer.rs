@@ -19,14 +19,15 @@ use smithay_client_toolkit::{
     },
     shm::{Shm, ShmHandler, slot::SlotPool},
 };
-use std::{convert::TryInto, num::NonZeroU32};
+use std::sync::atomic::Ordering;
+use std::{collections::HashMap, convert::TryInto, num::NonZeroU32, process::Command};
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
 };
 
-pub fn run_monitor_blank(args: Vec<String>) {
+pub fn run_monitor_blank(args: Vec<String>, term: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     env_logger::init();
     //connect to compositor (server)
     let conn = Connection::connect_to_env().unwrap();
@@ -46,8 +47,34 @@ pub fn run_monitor_blank(args: Vec<String>) {
     let shm = Shm::bind(&globals, &qh).expect("wl_shm is not avaiable");
     let pool = SlotPool::new(1920 * 1080 * 4 * 2, &shm).expect("Failed to create pool");
 
-    // let selected_outputs: Vec<String> = vec!["DP-1".to_string(), "DP-2".to_string()];
-    let selected_outputs: Vec<String> = args;
+    let mut monitor_configs = Vec::new();
+
+    for arg in args {
+        let parts: Vec<&str> = arg.split(':').collect();
+
+        if parts.len() != 3 {
+            eprintln!(
+                "Invalid monitor config '{}'. Expected OUTPUT:DIM:RESTORE",
+                arg
+            );
+            continue;
+        }
+
+        let output = parts[0].to_string();
+
+        let dim = parts[1].parse::<u8>().expect("Invalid dim brightness");
+
+        let restore = parts[2].parse::<u8>().expect("Invalid restore brightness");
+
+        monitor_configs.push(MonitorBrightnessConfig {
+            output,
+            dim,
+            restore,
+        });
+    }
+
+    //get the display map
+    let display_map = get_ddc_display_map();
 
     let mut simple_layer = SimpleLayer {
         registry_state: RegistryState::new(&globals),
@@ -62,18 +89,76 @@ pub fn run_monitor_blank(args: Vec<String>) {
         compositor,
         layer_shell,
         active_layers: Vec::new(),
-        selected_outputs: selected_outputs,
+        monitor_configs: monitor_configs,
+        display_map: display_map,
     };
+
+    simple_layer.set_brightness(false);
 
     // We don't draw immediately, the configure will notify us when to first draw.
     loop {
         event_queue.blocking_dispatch(&mut simple_layer).unwrap();
+
+        if term.load(Ordering::Relaxed) {
+            simple_layer.remove_all_layers();
+        }
 
         if simple_layer.exit {
             println!("exiting example");
             break;
         }
     }
+}
+
+fn get_ddc_display_map() -> HashMap<String, u8> {
+    let output = Command::new("ddcutil")
+        .arg("detect")
+        .output()
+        .expect("Failed to run ddcutil detect");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let mut map = HashMap::new();
+    let mut current_display: Option<u8> = None;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+
+        // Example:
+        // Display 1
+        if trimmed.starts_with("Display ") {
+            current_display = trimmed
+                .split_whitespace()
+                .nth(1)
+                .and_then(|s| s.parse::<u8>().ok());
+        }
+
+        // Example:
+        // DRM_connector: card1-DP-1
+        if trimmed.starts_with("DRM_connector:") {
+            if let Some(display_id) = current_display {
+                if let Some(connector) = trimmed.split_whitespace().last() {
+                    // card1-DP-1 -> DP-1
+                    let hypr_output = connector.split('-').skip(1).collect::<Vec<_>>().join("-");
+
+                    println!(
+                        "Mapped Hyprland output {} -> DDC display {}",
+                        hypr_output, display_id
+                    );
+
+                    map.insert(hypr_output, display_id);
+                }
+            }
+        }
+    }
+    map
+}
+
+#[derive(Debug, Clone)]
+struct MonitorBrightnessConfig {
+    output: String,
+    dim: u8,
+    restore: u8,
 }
 
 struct ActiveLayer {
@@ -98,7 +183,8 @@ struct SimpleLayer {
     compositor: CompositorState,
     layer_shell: LayerShell,
     active_layers: Vec<ActiveLayer>,
-    selected_outputs: Vec<String>,
+    monitor_configs: Vec<MonitorBrightnessConfig>,
+    display_map: HashMap<String, u8>,
 }
 
 impl SimpleLayer {
@@ -139,6 +225,8 @@ impl SimpleLayer {
     }
 
     fn remove_all_layers(&mut self) {
+        self.set_brightness(true);
+
         self.active_layers
             .iter()
             .for_each(|l| print!("Removing layer from output {:?}\n", l.output_name));
@@ -195,6 +283,39 @@ impl SimpleLayer {
         buffer.attach_to(layer.wl_surface()).expect("buffer attach");
         layer.commit();
     }
+
+    fn set_brightness(&self, restore: bool) {
+        for config in &self.monitor_configs {
+            let brightness = if restore { config.restore } else { config.dim };
+
+            match self.display_map.get(&config.output) {
+                Some(display_id) => {
+                    println!("Setting {} brightness to {}", config.output, brightness);
+
+                    let display_id = *display_id;
+
+                    std::thread::spawn(move || {
+                        let _ = Command::new("ddcutil")
+                            .args([
+                                "--display",
+                                &display_id.to_string(),
+                                "--sleep-multiplier",
+                                "0.3",
+                                "--noverify",
+                                "setvcp",
+                                "10",
+                                &brightness.to_string(),
+                            ])
+                            .spawn();
+                    });
+                }
+
+                None => {
+                    eprintln!("No DDC mapping found for {}", config.output);
+                }
+            }
+        }
+    }
 }
 
 impl OutputHandler for SimpleLayer {
@@ -210,7 +331,7 @@ impl OutputHandler for SimpleLayer {
     ) {
         if let Some(info) = self.output_state.info(&_output) {
             if let Some(name) = &info.name {
-                if self.selected_outputs.contains(name) {
+                if self.monitor_configs.iter().any(|c| c.output == *name) {
                     println!("Creating layer on output: {}", name);
                     self.create_layer(_conn, _qh, _output);
                 }
@@ -244,6 +365,7 @@ impl OutputHandler for SimpleLayer {
 
 impl LayerShellHandler for SimpleLayer {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
+        self.set_brightness(true);
         self.active_layers.clear();
         self.exit = true;
     }
